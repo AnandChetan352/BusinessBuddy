@@ -208,18 +208,24 @@ def verify_razorpay_payment(payment_id, key_id, key_secret):
         return False, f"Payment status is '{data.get('status')}'. Must be captured."
     return False, "Invalid Payment ID or Razorpay credentials."
 
-
 # ==============================================================================
-# 6. SOCIAL LOGIN GATEWAY PAGE
+# 6. SOCIAL LOGIN GATEWAY PAGE (FIXED FOR STREAMLIT NATIVE OIDC)
 # ==============================================================================
 if "auth_email" not in st.session_state:
     st.session_state.auth_email = None
     st.session_state.auth_provider = None
 
-# Support Native Streamlit OIDC Login if configured in secrets.toml
+# 1. Check if user returned from Google OAuth Login (`st.user.is_logged_in`)
 if hasattr(st, "user") and getattr(st.user, "is_logged_in", False):
-    st.session_state.auth_email = getattr(st.user, "email", "oidc_user@gmail.com")
-    st.session_state.auth_provider = "Google OIDC"
+    # Safely extract email from st.user dict/object
+    google_email = (
+        st.user.get("email")
+        if hasattr(st.user, "get")
+        else getattr(st.user, "email", None)
+    )
+    if google_email:
+        st.session_state.auth_email = google_email.strip().lower()
+        st.session_state.auth_provider = "Google OAuth 2.0"
 
 if not st.session_state.auth_email:
     st.markdown("<h1 style='text-align:center;'>🤝 Welcome to Business Buddy</h1>", unsafe_allow_html=True)
@@ -232,18 +238,20 @@ if not st.session_state.auth_email:
             st.subheader("🔐 Sign In to Start Your 15-Minute Free Trial")
             st.caption("Strict 1-Trial Policy: Limited to 15 minutes per User, IP Address, and Device Fingerprint.")
 
-            # Option A: Native Google OAuth via Streamlit OIDC (if configured in .streamlit/secrets.toml)
+            # Option A: Native Google OAuth via Streamlit OIDC
             if st.button("🌐 Continue with Google (OAuth 2.0)", type="primary", use_container_width=True):
-                if hasattr(st, "login"):
-                    try:
-                        st.login()
-                    except Exception:
-                        st.info("Tip: To use production Google OAuth redirect, add `[auth]` Google client credentials in `.streamlit/secrets.toml`, or use Instant Social Login below for testing.")
-                else:
-                    st.info("Configure `[auth]` in `.streamlit/secrets.toml` or sign in below.")
+                try:
+                    st.login()
+                except Exception as auth_err:
+                    st.error(f"Google OAuth Error: {auth_err}")
+                    st.info(
+                        "Checklist:\n"
+                        "1. Ensure `Authlib>=1.3.2` and `streamlit>=1.42.0` are in `requirements.txt`.\n"
+                        "2. Reboot the app on Streamlit Cloud after saving Secrets."
+                    )
 
             st.divider()
-            st.markdown("**Instant Social / Work Email Sign-In**")
+            st.markdown("**Instant Work Email Sign-In**")
             provider_choice = st.selectbox("Select Identity Provider", ["Google Workspace / Gmail", "LinkedIn", "GitHub"])
             email_input = st.text_input("Enter Your Email Address", placeholder="founder@company.com")
 
@@ -255,7 +263,6 @@ if not st.session_state.auth_email:
                 else:
                     st.error("Please enter a valid email address.")
     st.stop()
-
 
 # ==============================================================================
 # 7. ENFORCE 15-MIN TRIAL & PAYWALL GATE
